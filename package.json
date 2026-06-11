@@ -1,0 +1,23 @@
+{
+  "name": "agentos",
+  "private": true,
+  "version": "0.1.0-mvp",
+  "description": "agentOS MVP — Agent runtime & orchestration for developer automation",
+  "scripts": {
+    "dev": "npm run dev -w @agentos/web",
+    "dev:full": "concurrently -n api,web -c blue,green \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "npm run dev -w @agentos/api",
+    "dev:web": "npm run dev -w @agentos/web",
+    "build": "npm run build -w @agentos/shared && npm run build -w @agentos/api && npm run build -w @agentos/web",
+    "start": "npm run start -w @agentos/api",
+    "test": "npm run test -w @agentos/shared"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.3"
+  }
+}
