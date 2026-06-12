@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   approveRun,
   cancelRun,
@@ -10,12 +10,14 @@ import {
   fetchMetrics,
   fetchRun,
   fetchRuns,
+  fetchWorkflowDataStats,
   getAgentBudgetStatus,
   exportDemoData,
   importDemoData,
   IS_FRONTEND_DEMO,
   rejectRun,
   resetDemoData,
+  seedDemoExperience,
   retryRun,
   reviseRun,
   subscribeLogs,
@@ -51,10 +53,48 @@ import {
   STATUS_LABEL,
 } from './friendly';
 import { WorkflowGuide } from './WorkflowGuide';
-import { PlatformOverview } from './PlatformOverview';
+import { EmptyState } from './visuals/EmptyState';
+import { WorkbenchFlowGuide } from './WorkbenchFlowGuide';
 import { AgentEditor } from './AgentEditor';
 import { ArchitectureOverview } from './architecture/ArchitectureOverview';
 import type { Page } from './architecture/types';
+import { OverviewHome } from './OverviewHome';
+import { AuthPage, clearAuthSession, readAuthSession, type AuthUser } from './AuthPage';
+import { TokenMonitor } from './TokenMonitor';
+import { AiPlatform } from './AiPlatform';
+import { AssistantPanel } from './AssistantPanel';
+import { DemoExperienceTour } from './DemoExperienceTour';
+import { ExperienceSummary } from './ExperienceSummary';
+import { OnboardingGuide } from './OnboardingGuide';
+import { getAiPlatformState } from './aiPlatform/store';
+import { isOnboardingDone } from './assistant/onboarding';
+import type { AssistantAction, AssistantContext } from './assistant/types';
+import { setAiPlatformTab } from './aiPlatform/store';
+import { syncWorkflowDataSources } from './aiPlatform/syncWorkflowData';
+import {
+  enterPresentationFullscreen,
+  exitPresentationFullscreen,
+  isPresentationMode,
+  setPresentationMode,
+  togglePresentationMode,
+} from './demo/presentationMode';
+import {
+  initExperienceProgress,
+  markExperienceGroupComplete,
+  markExperienceTourFinishedInProgress,
+  readExperienceProgress,
+  resetExperienceProgress,
+  summarizeExperienceProgress,
+} from './demo/experienceProgress';
+import { NAV_MODULES } from './modules';
+import { ModuleIcon } from './icons';
+import { NotificationCenter } from './NotificationCenter';
+import {
+  computeNotifications,
+  readNotificationIds,
+  saveNotificationIds,
+  type AppNotification,
+} from './notifications';
 
 type StatusFilterKey = '' | 'active' | 'terminal' | RunStatus;
 
@@ -124,6 +164,7 @@ function ProgressBar({ status }: { status: RunStatus }) {
 }
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => readAuthSession());
   const [runs, setRuns] = useState<Run[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
@@ -141,7 +182,8 @@ export default function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(false);
   const [devMode, setDevMode] = useState(false);
-  const [page, setPage] = useState<Page>('tasks');
+  const [page, setPage] = useState<Page>(() => (readAuthSession() ? 'overview' : 'auth'));
+  const [lastModulePage, setLastModulePage] = useState<Page>('tasks');
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [integrations, setIntegrations] = useState<IntegrationsStatus | null>(null);
   const [showPrPreview, setShowPrPreview] = useState(false);
@@ -152,9 +194,75 @@ export default function App() {
   const [agentFilter, setAgentFilter] = useState('');
   const [logsExpanded, setLogsExpanded] = useState(true);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const navScrollRef = useRef<HTMLDivElement | null>(null);
+  const [mobileHeaderMenuOpen, setMobileHeaderMenuOpen] = useState(false);
+  const [presentationMode, setPresentationModeState] = useState(() => isPresentationMode());
+  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(document.fullscreenElement));
+  const [readNotificationIdsState, setReadNotificationIdsState] = useState<Set<string>>(() => readNotificationIds());
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showExperienceTour, setShowExperienceTour] = useState(false);
+  const [showExperienceSummary, setShowExperienceSummary] = useState(false);
+  const [experiencePendingRunId, setExperiencePendingRunId] = useState<string | null>(null);
+  const [experienceTourStartIndex, setExperienceTourStartIndex] = useState(0);
+  const [experienceProgressTick, setExperienceProgressTick] = useState(0);
 
   const selectedAgent = selectedRun ? agents.find((a) => a.id === selectedRun.agentId) : null;
   const pendingApprovalCount = runs.filter((r) => r.status === 'needs_approval').length;
+  const experienceSummaryMetrics = useMemo(
+    () => {
+      const aiState = getAiPlatformState();
+      return {
+        pendingCount: pendingApprovalCount,
+        completedCount: runs.filter((run) => run.status === 'completed').length,
+        totalTokens: metrics?.totalTokens ?? runs.reduce((sum, run) => sum + run.tokensUsed, 0),
+        totalCostUsd: metrics?.totalCostUsd ?? 0,
+        aiDatasetReady: aiState.datasets.some((item) => item.cleaned),
+        fineTunedModelReady: aiState.fineTunedModels.length > 0,
+      };
+    },
+    [pendingApprovalCount, runs, metrics],
+  );
+  const experiencePendingApproved = useMemo(() => {
+    if (!experiencePendingRunId) return false;
+    const run = runs.find((item) => item.id === experiencePendingRunId);
+    return run ? run.status !== 'needs_approval' : false;
+  }, [experiencePendingRunId, runs]);
+  const experienceProgress = useMemo(
+    () => summarizeExperienceProgress(readExperienceProgress()),
+    [experienceProgressTick, experiencePendingApproved],
+  );
+  const experienceCompletedGroups = useMemo(
+    () => readExperienceProgress()?.completedGroups ?? [],
+    [experienceProgressTick, experiencePendingApproved],
+  );
+
+  function bumpExperienceProgress() {
+    setExperienceProgressTick((value) => value + 1);
+  }
+  const notifications = useMemo(() => computeNotifications(agents, runs), [agents, runs]);
+  const assistantContext = useMemo<AssistantContext>(() => {
+    const budgetWarningCount = agents.filter((agent) => {
+      const status = getAgentBudgetStatus(agent.id);
+      return status === 'warn' || status === 'exceeded';
+    }).length;
+
+    const selectedRunContext = selectedRun
+      ? {
+          id: selectedRun.id,
+          title: friendlyTaskTitle(selectedRun),
+          status: selectedRun.status,
+        }
+      : null;
+
+    return {
+      page,
+      totalRuns: runs.length,
+      pendingApprovalCount,
+      agentCount: agents.length,
+      budgetWarningCount,
+      selectedRun: selectedRunContext,
+    };
+  }, [page, runs.length, pendingApprovalCount, agents, selectedRun]);
   const createBudgetStatus = selectedAgentId ? getAgentBudgetStatus(selectedAgentId) : 'ok';
 
   const filteredRuns = runs
@@ -188,6 +296,9 @@ export default function App() {
       setSelectedRun(run);
     }
     await refreshMetrics();
+    if (IS_FRONTEND_DEMO) {
+      syncWorkflowDataSources(fetchWorkflowDataStats());
+    }
   }, [selectedId, refreshMetrics]);
 
   useEffect(() => {
@@ -209,6 +320,75 @@ export default function App() {
     const running = ['pending', 'queued', 'provisioning', 'running', 'pr_opened'].includes(selectedRun.status);
     setLogsExpanded(running);
   }, [selectedRun?.id, selectedRun?.status]);
+
+  useEffect(() => {
+    setMobileHeaderMenuOpen(false);
+    const wrap = navScrollRef.current;
+    if (!wrap) return;
+    const active = wrap.querySelector<HTMLElement>('.nav-tab.active');
+    active?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [page]);
+
+  useEffect(() => {
+    if (page !== 'overview' && page !== 'auth') {
+      setLastModulePage(page);
+    }
+  }, [page]);
+
+  useEffect(() => {
+    document.body.classList.toggle('presentation-mode', presentationMode);
+    return () => document.body.classList.remove('presentation-mode');
+  }, [presentationMode]);
+
+  useEffect(() => {
+    if (!showExperienceSummary) return;
+    void refreshRuns();
+    const t = setInterval(() => void refreshRuns(), 1500);
+    return () => clearInterval(t);
+  }, [showExperienceSummary, refreshRuns]);
+
+  useEffect(() => {
+    if (!presentationMode) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') void handleExitPresentationMode();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [presentationMode]);
+
+  useEffect(() => {
+    function onFullscreenChange() {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+      if (!document.fullscreenElement && isPresentationMode()) {
+        setPresentationMode(false);
+        setPresentationModeState(false);
+      }
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  useEffect(() => {
+    const wrap = navScrollRef.current;
+    if (!wrap || !currentUser) return;
+
+    const updateScrollable = () => {
+      const scrollable = wrap.scrollWidth > wrap.clientWidth + 2;
+      wrap.classList.toggle('is-scrollable', scrollable);
+    };
+
+    updateScrollable();
+    const observer = new ResizeObserver(updateScrollable);
+    observer.observe(wrap);
+    wrap.addEventListener('scroll', updateScrollable, { passive: true });
+    window.addEventListener('resize', updateScrollable);
+
+    return () => {
+      observer.disconnect();
+      wrap.removeEventListener('scroll', updateScrollable);
+      window.removeEventListener('resize', updateScrollable);
+    };
+  }, [currentUser]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -259,6 +439,10 @@ export default function App() {
     await approveRun(selectedId);
     await refreshRuns();
     void fetchAudit(selectedId).then(setAuditEvents);
+    if (IS_FRONTEND_DEMO && experiencePendingRunId && selectedId === experiencePendingRunId) {
+      markExperienceGroupComplete('approve');
+      bumpExperienceProgress();
+    }
   }
 
   async function handleReject(reason?: string) {
@@ -299,9 +483,67 @@ export default function App() {
     await refreshRuns();
   }
 
+  async function handleStartExperience() {
+    if (!IS_FRONTEND_DEMO) return;
+    const replace = runs.length > 0;
+    if (replace && !window.confirm('将替换当前任务数据并填充演示内容，继续？')) return;
+    const result = await seedDemoExperience(replace);
+    setExperiencePendingRunId(result.pendingRunId);
+    setSelectedId(result.pendingRunId);
+    initExperienceProgress();
+    setExperienceTourStartIndex(0);
+    bumpExperienceProgress();
+    await refreshRuns();
+    setPage('overview');
+    setShowExperienceSummary(false);
+    setShowExperienceTour(true);
+  }
+
+  function handleResumeExperience() {
+    if (!IS_FRONTEND_DEMO) return;
+    const progress = readExperienceProgress();
+    if (!progress) {
+      void handleStartExperience();
+      return;
+    }
+    setExperienceTourStartIndex(progress.lastStepIndex);
+    setShowExperienceSummary(false);
+    setShowExperienceTour(true);
+  }
+
+  function handleFocusExperienceRun(runId: string) {
+    setSelectedId(runId);
+    setPage('tasks');
+  }
+
+  function handleGoPendingApproval() {
+    const pending = runs.find((run) => run.status === 'needs_approval');
+    if (pending) setSelectedId(pending.id);
+    setStatusFilter('needs_approval');
+    setPage('tasks');
+  }
+
+  function handleTogglePresentationMode() {
+    const next = togglePresentationMode();
+    setPresentationModeState(next);
+    if (next) {
+      void enterPresentationFullscreen();
+    } else {
+      void exitPresentationFullscreen();
+    }
+  }
+
+  function handleExitPresentationMode() {
+    setPresentationMode(false);
+    setPresentationModeState(false);
+    void exitPresentationFullscreen();
+  }
+
   async function handleResetDemo() {
     if (!window.confirm('清空所有本地数据（任务、智能体恢复默认）？此操作不可撤销。')) return;
     await resetDemoData();
+    resetExperienceProgress();
+    bumpExperienceProgress();
     setSelectedId(null);
     const list = await fetchAgents();
     setAgents(list);
@@ -350,67 +592,221 @@ export default function App() {
     setAgentFilter('');
   }
 
+  function handleAuthSuccess(user: AuthUser) {
+    setCurrentUser(user);
+    setPage('overview');
+    if (!isOnboardingDone()) {
+      setShowOnboarding(true);
+    }
+  }
+
+  function handleLogout() {
+    clearAuthSession();
+    setCurrentUser(null);
+    setSelectedId(null);
+    setSelectedRun(null);
+    setPage('auth');
+  }
+
+  function handleMarkNotificationRead(id: string) {
+    setReadNotificationIdsState((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      saveNotificationIds(next);
+      return next;
+    });
+  }
+
+  function handleMarkAllNotificationsRead() {
+    const next = new Set(notifications.map((item) => item.id));
+    setReadNotificationIdsState(next);
+    saveNotificationIds(next);
+  }
+
+  function handleOpenNotification(notification: AppNotification) {
+    handleMarkNotificationRead(notification.id);
+    if (notification.runId) {
+      setSelectedId(notification.runId);
+      setPage('tasks');
+      return;
+    }
+    setPage(notification.page);
+  }
+
+  function handleAssistantAction(action: AssistantAction) {
+    switch (action.type) {
+      case 'navigate':
+        setPage(action.page);
+        break;
+      case 'create_task':
+        setPage('tasks');
+        setShowCreate(true);
+        break;
+      case 'open_onboarding':
+        setShowOnboarding(true);
+        break;
+      case 'open_ai':
+        if (action.tab) setAiPlatformTab(action.tab);
+        setPage('ai');
+        break;
+      case 'focus_pending': {
+        const pending = runs.find((run) => run.status === 'needs_approval');
+        if (pending) {
+          setSelectedId(pending.id);
+          setPage('tasks');
+        } else {
+          setPage('tasks');
+        }
+        break;
+      }
+      case 'open_selected_task':
+        if (selectedId) {
+          setPage('tasks');
+        } else {
+          setPage('tasks');
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
   const hasTaskFilters = Boolean(statusFilter || searchQuery.trim() || agentFilter);
 
   return (
-    <div className="app">
-      <header className="header">
-        <div className="brand">
-          <span className="logo">⬡</span>
-          <div>
-            <h1>agentOS</h1>
-            <p>Issue 驱动 · Skill 编排 · Draft PR · Human Gate</p>
+    <div className={`app${presentationMode ? ' is-presentation' : ''}`}>
+      {currentUser && presentationMode && (
+        <div className="presentation-banner">
+          <span>演示模式 · 全屏投屏 · 界面已简化 · 按 Esc 退出</span>
+          <div className="presentation-banner-actions">
+            {IS_FRONTEND_DEMO && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void handleStartExperience()}>
+                5 分钟体验
+              </button>
+            )}
+            {!isFullscreen && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void enterPresentationFullscreen()}>
+                进入全屏
+              </button>
+            )}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => window.print()}>
+              打印 / 导出 PDF
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={handleExitPresentationMode}>
+              退出演示
+            </button>
           </div>
         </div>
-        <div className="header-actions">
-          <nav className="nav-tabs">
+      )}
+      <header className={currentUser ? 'header' : 'header auth-header'}>
+        <div className="header-start">
+          <div className="brand">
+            <span className="logo">⬡</span>
+            <div>
+              <h1>agentOS</h1>
+              <p>智能体工程工作台</p>
+            </div>
+          </div>
+          {currentUser && (
             <button
               type="button"
-              className={page === 'tasks' ? 'nav-tab active' : 'nav-tab'}
-              onClick={() => setPage('tasks')}
+              className="header-menu-toggle"
+              aria-expanded={mobileHeaderMenuOpen}
+              aria-controls="header-actions-panel"
+              onClick={() => setMobileHeaderMenuOpen((open) => !open)}
             >
-              任务
+              {mobileHeaderMenuOpen ? '收起' : '菜单'}
             </button>
-            <button
-              type="button"
-              className={page === 'agents' ? 'nav-tab active' : 'nav-tab'}
-              onClick={() => setPage('agents')}
-            >
-              智能体
+          )}
+        </div>
+        {currentUser && (
+          <div className="header-nav-slot">
+            <div className="nav-tabs-scroll-wrap" ref={navScrollRef}>
+              <nav className="nav-tabs" aria-label="主导航">
+                {NAV_MODULES.map((module) => (
+                  <button
+                    key={module.page}
+                    type="button"
+                    className={page === module.page ? 'nav-tab active' : 'nav-tab'}
+                    onClick={() => setPage(module.page)}
+                    aria-label={module.label}
+                    title={module.label}
+                  >
+                    <ModuleIcon id={module.icon} size="sm" />
+                    <span>{module.label}</span>
+                  </button>
+                ))}
+              </nav>
+            </div>
+          </div>
+        )}
+        <div
+          id="header-actions-panel"
+          className={`header-actions${mobileHeaderMenuOpen ? ' is-expanded' : ''}${!currentUser ? ' is-auth' : ''}`}
+        >
+          {!currentUser && <span className="auth-header-note">登录后进入工作台</span>}
+          {currentUser && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowOnboarding(true)}>
+              新手引导
             </button>
-            <button
-              type="button"
-              className={page === 'architecture' ? 'nav-tab active' : 'nav-tab'}
-              onClick={() => setPage('architecture')}
-            >
-              架构
-            </button>
-          </nav>
-          <label className="dev-toggle">
-            <input type="checkbox" checked={devMode} onChange={(e) => setDevMode(e.target.checked)} />
-            开发者视图
-          </label>
-          {page === 'tasks' && (
+          )}
+          {currentUser && (
+            <NotificationCenter
+              notifications={notifications}
+              readIds={readNotificationIdsState}
+              onMarkRead={handleMarkNotificationRead}
+              onMarkAllRead={handleMarkAllNotificationsRead}
+              onOpen={handleOpenNotification}
+            />
+          )}
+          {currentUser && (
+            <div className="user-menu">
+              <span>
+                {currentUser.name}
+                <small>{currentUser.email}</small>
+              </span>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={handleLogout}>
+                退出
+              </button>
+            </div>
+          )}
+          {currentUser && (
+            <label className="dev-toggle">
+              <input type="checkbox" checked={devMode} onChange={(e) => setDevMode(e.target.checked)} />
+              开发者视图
+            </label>
+          )}
+          {currentUser && page === 'tasks' && (
             <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
-              + 新建任务
+              + 新建任务说明
             </button>
           )}
         </div>
       </header>
 
-      {integrations && (
+      {currentUser && integrations && (
         <div className={`integration-bar integration-${integrations.mode}`}>
           {IS_FRONTEND_DEMO ? (
             <>
-              <span>本地模式 — 数据保存在浏览器{page === 'agents' ? '（含智能体配置）' : ''}</span>
+              <span className="presentation-hide">本地模式 — 数据保存在浏览器{page === 'agents' ? '（含智能体配置）' : ''}</span>
               <div className="integration-actions">
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void handleExportDemo()}>
+                <button type="button" className="btn btn-ghost btn-sm presentation-hide" onClick={() => void handleStartExperience()}>
+                  5 分钟体验
+                </button>
+                <button
+                  type="button"
+                  className={presentationMode ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+                  onClick={handleTogglePresentationMode}
+                >
+                  {presentationMode ? '演示中' : '演示模式'}
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm presentation-hide" onClick={() => void handleExportDemo()}>
                   导出 JSON
                 </button>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => importInputRef.current?.click()}>
+                <button type="button" className="btn btn-ghost btn-sm presentation-hide" onClick={() => importInputRef.current?.click()}>
                   导入 JSON
                 </button>
-                <button type="button" className="btn btn-ghost btn-sm btn-danger-text" onClick={() => void handleResetDemo()}>
+                <button type="button" className="btn btn-ghost btn-sm btn-danger-text presentation-hide" onClick={() => void handleResetDemo()}>
                   清空本地数据
                 </button>
                 <input
@@ -434,20 +830,66 @@ export default function App() {
         </div>
       )}
 
-      {page === 'agents' ? (
+      {currentUser && runs.length === 0 && page !== 'auth' && !presentationMode && (
+        <div className="guide-banner">
+          <span>第一次使用？点总览「开始 5 分钟体验」一键填充演示数据，或打开「新手引导 / 协同助手」。</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void handleStartExperience()}>
+            5 分钟体验
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowOnboarding(true)}>
+            新手引导
+          </button>
+        </div>
+      )}
+
+      {page === 'auth' || !currentUser ? (
+        <AuthPage onAuthSuccess={handleAuthSuccess} />
+      ) : page === 'overview' ? (
+        <main className="main overview-main">
+          <OverviewHome
+            metrics={metrics}
+            pendingApprovalCount={pendingApprovalCount}
+            agentCount={agents.length}
+            runs={runs}
+            onCreateRun={() => setShowCreate(true)}
+            onNavigate={setPage}
+            onOpenPendingTasks={handleGoPendingApproval}
+            onStartExperience={() => void handleStartExperience()}
+            onResumeExperience={handleResumeExperience}
+            onViewExperienceSummary={() => setShowExperienceSummary(true)}
+            experienceProgress={experienceProgress}
+            experienceCompletedGroups={experienceCompletedGroups}
+            showExperienceCard={IS_FRONTEND_DEMO}
+            highlightPage={lastModulePage}
+          />
+        </main>
+      ) : page === 'agents' ? (
         <AgentEditor />
+      ) : page === 'tokens' ? (
+        <TokenMonitor
+          agents={agents}
+          runs={runs}
+          metrics={metrics}
+          onConfigureAgent={() => setPage('agents')}
+        />
+      ) : page === 'ai' ? (
+        <AiPlatform
+          onUseModel={() => {
+            setPage('agents');
+          }}
+        />
       ) : page === 'architecture' ? (
         <main className="main arch-main">
           <ArchitectureOverview onNavigate={setPage} metrics={metrics} />
         </main>
       ) : (
       <div className="layout">
-        <aside className="sidebar">
+        <aside className="sidebar" data-tour="workbench-sidebar">
           <div className="sidebar-head">
             <h2>我的任务</h2>
             <span className="count">{runs.length}</span>
             {pendingApprovalCount > 0 && (
-              <span className="pending-badge" title="待验收 Draft PR">
+              <span className="pending-badge" title="待验收修改方案">
                 {pendingApprovalCount} 待验收
               </span>
             )}
@@ -465,7 +907,7 @@ export default function App() {
             </div>
             <input
               type="search"
-              placeholder="搜索标题、Issue、验收标准或项目…"
+              placeholder="搜索标题、问题编号、验收标准或项目…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="sidebar-search"
@@ -500,16 +942,19 @@ export default function App() {
               </label>
             )}
           </div>
-          <ul className="run-list">
+          <ul className="run-list" data-tour="workbench-runs">
             {filteredRuns.length === 0 && (
               <li className="empty">
                 {runs.length === 0 ? (
-                  <>
+                  <EmptyState variant="tasks" title="还没有任务">
                     <strong>还没有任务</strong>
-                    <span>点右上角「新建任务」开始。</span>
-                  </>
+                    <span>写一段任务说明，智能体会生成修改方案，再交给你验收。</span>
+                    <button type="button" className="btn btn-primary btn-sm empty-action" onClick={() => setShowCreate(true)}>
+                      新建第一个任务
+                    </button>
+                  </EmptyState>
                 ) : (
-                  <>
+                  <EmptyState variant="search" title="没有匹配的任务">
                     <strong>没有匹配的任务</strong>
                     <span>调整搜索词、状态或智能体筛选。</span>
                     {hasTaskFilters && (
@@ -517,7 +962,7 @@ export default function App() {
                         清空筛选
                       </button>
                     )}
-                  </>
+                  </EmptyState>
                 )}
               </li>
             )}
@@ -525,6 +970,7 @@ export default function App() {
               <li
                 key={run.id}
                 className={`run-item${selectedId === run.id ? ' active' : ''}${run.status === 'needs_approval' ? ' run-item-pending' : ''}`}
+                data-tour={run.status === 'needs_approval' ? 'workbench-pending-run' : undefined}
                 onClick={() => setSelectedId(run.id)}
               >
                 <div className="run-item-top">
@@ -547,26 +993,23 @@ export default function App() {
 
         <main className="main">
           {!selectedRun ? (
-            <div className="welcome">
-              <PlatformOverview
-                variant="welcome"
-                metrics={metrics}
-                pendingApprovalCount={pendingApprovalCount}
-                onNavigate={setPage}
-              />
-              <WorkflowGuide />
-
-              <div className="welcome-footer">
-                <button className="btn btn-primary btn-lg" onClick={() => setShowCreate(true)}>
+            <div className="workbench-empty">
+              <EmptyState variant="tasks" title="工作台">
+                <span className="section-kicker">工作台</span>
+                <h2>{runs.length === 0 ? '还没有任务' : '选择一个任务查看详情'}</h2>
+                <p>
+                  {runs.length === 0
+                    ? '从左侧或顶部新建任务，智能体会生成修改方案，并在交给你之前完成测试、预算与变更检查。'
+                    : '左侧列表显示所有任务。待验收任务会自动置顶，进入详情后可查看任务说明、修改方案、验收、日志和操作记录。'}
+                </p>
+              </EmptyState>
+              <WorkbenchFlowGuide hasRuns={runs.length > 0} pendingApprovalCount={pendingApprovalCount} />
+              <div className="workbench-empty-actions">
+                <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
                   新建任务
                 </button>
-                <p className="hint">
-                  填写 Issue 标题与详情，选择智能体，AI 将生成 Draft PR 并进入 Gate 待你验收。
-                  {pendingApprovalCount > 0 && ` · 当前有 ${pendingApprovalCount} 个任务待验收`}
-                  {devMode && ` · 默认智能体：${agents[0]?.name ?? 'issue-fix-agent'}`}
-                </p>
-                <button type="button" className="btn btn-ghost btn-sm welcome-arch-link" onClick={() => setPage('architecture')}>
-                  查看三页功能与架构对照 →
+                <button type="button" className="btn btn-ghost" onClick={() => setPage('overview')}>
+                  返回总览
                 </button>
               </div>
             </div>
@@ -587,7 +1030,7 @@ export default function App() {
                           <span className="detail-meta-sub">
                             {' '}
                             （{friendlyModelName(selectedAgent.spec.model)} ·{' '}
-                            {selectedAgent.spec.skills?.length ?? selectedAgent.spec.tools.length} 个 Skill）
+                            {selectedAgent.spec.skills?.length ?? selectedAgent.spec.tools.length} 个能力包）
                           </span>
                         )}
                       </>
@@ -625,7 +1068,7 @@ export default function App() {
               )}
 
               <section className="issue-card">
-                <span className="section-kicker">意图 · Issue</span>
+                <span className="section-kicker">任务说明</span>
                 <h3>{friendlyTaskTitle(selectedRun)}</h3>
                 <p className="issue-body">
                   {selectedRun.input.issueBody?.trim() ||
@@ -638,7 +1081,7 @@ export default function App() {
                   </div>
                 )}
                 {selectedRun.input.issueNumber != null && (
-                  <p className="issue-meta-line">Issue #{selectedRun.input.issueNumber}</p>
+                  <p className="issue-meta-line">问题编号 #{selectedRun.input.issueNumber}</p>
                 )}
                 <div className="issue-meta">
                   <span>项目：{friendlyRepoName(selectedRun.input.repo)}</span>
@@ -651,7 +1094,7 @@ export default function App() {
                 <p>{friendlySummary(selectedRun)}</p>
                 <ul className="exec-summary-stats">
                   <li>状态：{STATUS_LABEL[selectedRun.status]}</li>
-                  <li>Token：{selectedRun.tokensUsed.toLocaleString()}</li>
+                  <li>用量：{selectedRun.tokensUsed.toLocaleString()} tokens</li>
                   <li>耗时：约 {formatRunDuration(selectedRun)}</li>
                 </ul>
               </section>
@@ -659,7 +1102,7 @@ export default function App() {
               {selectedRun.output?.summary && (
                 <section className="pr-card pr-card-draft">
                   <div className="pr-card-head">
-                    <span className="section-kicker">Draft PR 预览</span>
+                    <span className="section-kicker">修改方案预览</span>
                     {selectedRun.status === 'needs_approval' && (
                       <span className="draft-pr-badge">待验收</span>
                     )}
@@ -694,7 +1137,7 @@ export default function App() {
                     </ul>
                   </div>
                   <button type="button" className="btn btn-ghost pr-preview-btn" onClick={() => setShowPrPreview(true)}>
-                    查看完整 diff →
+                    查看完整代码差异 →
                   </button>
                 </section>
               )}
@@ -707,17 +1150,19 @@ export default function App() {
               )}
 
               {selectedRun.status === 'needs_approval' && (
-                <ApprovalGate
-                  onApprove={() => handleApprove()}
-                  onReject={(reason) => handleReject(reason)}
-                  onRevise={(notes) => handleRevise(notes)}
-                />
+                <div data-tour="approval-gate">
+                  <ApprovalGate
+                    onApprove={() => handleApprove()}
+                    onReject={(reason) => handleReject(reason)}
+                    onRevise={(notes) => handleRevise(notes)}
+                  />
+                </div>
               )}
 
               {auditEvents.length > 0 && (
                 <section className="audit-section">
-                  <h3>审计轨迹</h3>
-                  <p className="logs-desc">不可变事件记录，Gate 决策与状态变更可追溯</p>
+                  <h3>操作记录</h3>
+                  <p className="logs-desc">验收决定与状态变化都会记录，方便之后复盘</p>
                   <AuditTimeline events={auditEvents} />
                 </section>
               )}
@@ -726,9 +1171,9 @@ export default function App() {
                 <div className="audit-card">
                   <strong>验收摘要</strong>
                   <ul>
-                    <li>Gate：{friendlyCompletionGate(selectedRun)}</li>
+                    <li>验收结果：{friendlyCompletionGate(selectedRun)}</li>
                     <li>耗时：约 {formatRunDuration(selectedRun)}</li>
-                    <li>Token：{selectedRun.tokensUsed.toLocaleString()}</li>
+                    <li>用量：{selectedRun.tokensUsed.toLocaleString()} tokens</li>
                     {selectedAgent && <li>智能体：{selectedAgent.name}</li>}
                   </ul>
                 </div>
@@ -739,7 +1184,7 @@ export default function App() {
                   <span>
                     任务 ID：<code>{selectedRun.id}</code>
                   </span>
-                  <span>消耗 Token：{selectedRun.tokensUsed.toLocaleString()}</span>
+                  <span>消耗用量：{selectedRun.tokensUsed.toLocaleString()} tokens</span>
                   <span>流程：{selectedRun.workflow}</span>
                 </div>
               )}
@@ -749,7 +1194,7 @@ export default function App() {
                   <div>
                     <h3>{devMode ? '技术日志' : '执行过程'}</h3>
                     <p className="logs-desc">
-                      {devMode ? '原始日志流（含工具名与英文 message）' : 'AI 执行步骤的简要记录（验收时可折叠）'}
+                      {devMode ? '原始日志流（含工具名与英文 message）' : 'AI 执行步骤的简要记录，可展开查看'}
                     </p>
                   </div>
                   {!['pending', 'queued', 'provisioning', 'running', 'pr_opened'].includes(selectedRun.status) && (
@@ -789,8 +1234,8 @@ export default function App() {
       {showPrPreview && selectedRun?.output && (
         <div className="modal-backdrop" onClick={() => setShowPrPreview(false)}>
           <div className="modal modal-wide pr-preview-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Draft PR 预览</h2>
-            <p className="modal-note">变更文件与 diff 摘要。验收请在任务页使用 Gate：通过 / 要求修改 / 打回。</p>
+            <h2>修改方案预览</h2>
+            <p className="modal-note">这里展示变更文件和代码差异。确认结果请回到工作台选择：通过、要求修改或打回。</p>
             {selectedRun.output.summary && <p className="pr-preview-summary">{selectedRun.output.summary}</p>}
             {selectedRun.output.branch && (
               <p className="pr-preview-meta">
@@ -823,7 +1268,7 @@ export default function App() {
                     ✓ 通过
                   </button>
                   <button type="button" className="btn btn-ghost" onClick={() => setShowPrPreview(false)}>
-                    返回任务页验收
+                    返回工作台验收
                   </button>
                 </>
               )}
@@ -874,7 +1319,7 @@ export default function App() {
             <section className="modal-section">
               <div className="modal-section-head">
                 <span>02</span>
-                <strong>Issue 意图</strong>
+                <strong>任务说明</strong>
               </div>
               <div className="modal-field-row modal-field-row-compact">
                 <label>
@@ -892,41 +1337,41 @@ export default function App() {
                 </label>
               </div>
               <label>
-                问题详情（意图）
+                问题详情
                 <textarea
                   value={issueBody}
                   onChange={(e) => setIssueBody(e.target.value)}
                   rows={4}
                   placeholder="补充复现步骤、期望行为、约束条件…"
                 />
-                <span className="field-hint">10-80-10 的前 10%：写清楚意图，AI 才容易改对</span>
+                <span className="field-hint">你写得越清楚，智能体越容易一次改对</span>
               </label>
             </section>
 
             <section className="modal-section">
               <div className="modal-section-head">
                 <span>03</span>
-                <strong>Gate 验收标准</strong>
+                <strong>验收标准</strong>
               </div>
               <label>
-                验收标准（KPI）
+                验收标准
                 <textarea
                   value={acceptanceCriteria}
                   onChange={(e) => setAcceptanceCriteria(e.target.value)}
                   rows={3}
                   placeholder="例如：测试通过、有错误提示、不改无关文件…"
                 />
-                <span className="field-hint">将写入 PR 摘要与审计，供 Gate 验收时对照</span>
+                <span className="field-hint">会写入修改摘要和操作记录，验收时可以逐条对照</span>
               </label>
             </section>
             {createBudgetStatus === 'warn' && (
-              <p className="modal-warn">该智能体本月 Token 已用超过 80%，继续创建可能很快触顶。</p>
+              <p className="modal-warn">该智能体本月用量已超过 80%，继续创建可能很快达到上限。</p>
             )}
             {createBudgetStatus === 'exceeded' && (
               <p className="modal-warn modal-warn-stop">该智能体本月预算已用尽，请调整预算或换智能体。</p>
             )}
             <p className="modal-note">
-              提交后将自动执行：读代码 → 修改 → 测试 → Gate 前检查 → Draft PR 待验收。标题或详情含「测试失败」可复现测试不通过场景。
+              提交后将自动执行：读代码 → 修改 → 测试 → 验收前检查 → 修改方案待验收。标题或详情含「测试失败」可复现测试不通过场景。
             </p>
             <div className="modal-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setShowCreate(false)}>
@@ -942,6 +1387,60 @@ export default function App() {
             </div>
           </form>
         </div>
+      )}
+
+      {currentUser && showExperienceTour && (
+        <DemoExperienceTour
+          key={experienceTourStartIndex}
+          pendingRunId={experiencePendingRunId}
+          pendingRunApproved={experiencePendingApproved}
+          initialStepIndex={experienceTourStartIndex}
+          onNavigate={setPage}
+          onFocusPendingRun={handleFocusExperienceRun}
+          onProgressUpdate={bumpExperienceProgress}
+          onClose={() => setShowExperienceTour(false)}
+          onComplete={() => {
+            bumpExperienceProgress();
+            setShowExperienceSummary(true);
+          }}
+        />
+      )}
+
+      {currentUser && showExperienceSummary && (
+        <ExperienceSummary
+          metrics={experienceSummaryMetrics}
+          onClose={() => setShowExperienceSummary(false)}
+          onGoApprove={() => {
+            setShowExperienceSummary(false);
+            handleGoPendingApproval();
+          }}
+          onCreateTask={() => {
+            setShowExperienceSummary(false);
+            setPage('tasks');
+            setShowCreate(true);
+          }}
+          onOpenOnboarding={() => {
+            setShowExperienceSummary(false);
+            setShowOnboarding(true);
+          }}
+          onOpenAi={() => {
+            setShowExperienceSummary(false);
+            setAiPlatformTab('models');
+            setPage('ai');
+          }}
+          onRestartExperience={() => {
+            setShowExperienceSummary(false);
+            void handleStartExperience();
+          }}
+        />
+      )}
+
+      {currentUser && showOnboarding && (
+        <OnboardingGuide onNavigate={setPage} onClose={() => setShowOnboarding(false)} />
+      )}
+
+      {currentUser && !presentationMode && (
+        <AssistantPanel context={assistantContext} onAction={handleAssistantAction} />
       )}
     </div>
   );

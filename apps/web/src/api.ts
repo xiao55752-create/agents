@@ -1,5 +1,6 @@
 import { IS_FRONTEND_DEMO } from './demo/index.js';
 import * as demo from './demo/store.js';
+import type { DemoSeedResult } from './demo/store.js';
 import type {
   Agent,
   AgentSpec,
@@ -44,6 +45,11 @@ export async function fetchSkills() {
   const res = await fetch(`${API}/api/skills`);
   const data = await res.json();
   return data.skills as import('@agentos/shared').SkillSpec[];
+}
+
+export function fetchWorkflowDataStats() {
+  if (IS_FRONTEND_DEMO) return demo.demoWorkflowDataStats();
+  return { runCount: 0, auditEventCount: 0 };
 }
 
 export async function fetchMetrics(): Promise<PlatformMetrics> {
@@ -235,6 +241,11 @@ export async function deleteAgent(id: string) {
     return;
   }
   await fetch(`${API}/api/agents/${id}`, { method: 'DELETE' });
+}
+
+export async function seedDemoExperience(replace = false): Promise<DemoSeedResult> {
+  if (IS_FRONTEND_DEMO) return demo.demoSeedExperience(replace);
+  throw new Error('仅 Demo 模式支持填充演示数据');
 }
 
 export async function resetDemoData() {

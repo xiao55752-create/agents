@@ -14,8 +14,8 @@ export function GatePrecheck({ checks, variant = 'passed' }: GatePrecheckProps) 
       className={`gate-precheck gate-precheck-${variant}${allOk ? ' gate-precheck-ok' : ' gate-precheck-blocked'}`}
     >
       <div className="gate-precheck-head">
-        <span className="gate-precheck-kicker">Gate 前检查</span>
-        <h3>{allOk ? '全部通过，可进入验收' : '未通过，已阻断进入 Gate'}</h3>
+        <span className="gate-precheck-kicker">验收前检查</span>
+        <h3>{allOk ? '全部通过，可以交给你验收' : '未通过，暂不进入人工验收'}</h3>
         <p className="gate-precheck-summary">{gateCheckSummary(checks)}</p>
       </div>
       <ul className="gate-precheck-list">
@@ -33,7 +33,7 @@ export function GatePrecheck({ checks, variant = 'passed' }: GatePrecheckProps) 
       </ul>
       {variant === 'failed' && !allOk && (
         <p className="gate-precheck-hint">
-          可在 Issue 中去掉「测试失败」标记后重试，或在智能体页挂载测试 Skill。
+          可在任务说明中去掉「测试失败」标记后重试，或在智能体页挂载测试能力包。
         </p>
       )}
     </section>

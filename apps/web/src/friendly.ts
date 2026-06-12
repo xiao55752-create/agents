@@ -7,7 +7,7 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   provisioning: '准备中',
   running: 'AI 修改中',
   pr_opened: '方案已生成',
-  needs_approval: 'Draft PR 待验收',
+  needs_approval: '待人工验收',
   completed: '已完成',
   failed: '出错了',
   cancelled: '已取消',
@@ -18,8 +18,8 @@ export const STATUS_HINT: Partial<Record<RunStatus, string>> = {
   queued: '前面还有别的任务，请稍等',
   provisioning: '正在准备运行环境',
   running: 'AI 正在读代码、改代码、跑测试',
-  pr_opened: 'Draft PR 已生成',
-  needs_approval: '请验收 Draft PR：通过、打回或要求修改',
+  pr_opened: '修改方案已生成',
+  needs_approval: '请验收修改方案：通过、打回或要求修改',
   completed: '这个任务已经处理完毕',
   failed: '处理过程中遇到问题，可以重试或取消',
   cancelled: '这个任务已被取消',
@@ -30,7 +30,7 @@ export const PROGRESS_STEPS = [
   { key: 'submit', label: '提交任务' },
   { key: 'queue', label: '排队等待' },
   { key: 'work', label: 'AI 工作中' },
-  { key: 'review', label: 'Draft PR 验收' },
+  { key: 'review', label: '人工验收' },
   { key: 'done', label: '完成' },
 ] as const;
 
@@ -91,18 +91,18 @@ export function friendlyLogMessage(log: LogEntry): string {
   if (msg.includes('Running npm test')) return '正在运行自动化测试';
   if (msg.includes('All tests passed')) return '测试全部通过 ✓';
   if (msg.includes('Tests failed')) return '自动化测试未通过 ✕';
-  if (msg.includes('Gate pre-check passed')) return 'Gate 前检查全部通过，等待你验收';
+  if (msg.includes('Gate pre-check passed')) return '验收前检查全部通过，等待你确认';
   if (msg.startsWith('Blocked unauthorized tool')) {
     const tool = typeof log.meta?.tools === 'object' && Array.isArray(log.meta.tools) ? log.meta.tools[0] : '';
-    return tool ? `运行时拦截未授权 Tool：${tool}` : '运行时拦截未授权 Tool';
+    return tool ? `运行时拦截未授权工具：${tool}` : '运行时拦截未授权工具';
   }
-  if (msg.startsWith('Draft PR opened')) return '已生成修改方案（草稿），可以预览';
+  if (msg.startsWith('Draft PR opened')) return '已生成修改方案，可以预览';
   if (msg.includes('Fix applied locally')) return '修改已写入本地分支（未启用开 PR 工具）';
   if (msg.includes('Calling Anthropic')) return '正在调用大模型生成修复方案…';
   if (msg.includes('LLM plan ready')) return '大模型方案已生成';
   if (msg.startsWith('GitHub repo verified')) return '已验证 GitHub 仓库访问权限';
   if (msg.startsWith('Posted plan comment')) return '已在 Issue 下回复 agentOS 方案评论';
-  if (msg.includes('Waiting for human approval')) return 'Draft PR 已就绪，等待你验收';
+  if (msg.includes('Waiting for human approval')) return '修改方案已就绪，等待你验收';
   if (msg === 'Gate approved — task completed') return '验收通过，任务完成 ✓';
   if (msg === 'Approved — task completed') return '验收通过，任务完成 ✓';
   if (msg.startsWith('Gate reject — re-queued')) return '验收打回，任务已重新排队执行';
@@ -130,7 +130,7 @@ export function friendlyToolName(tool: string): string {
     write_file: '改代码',
     shell: '跑命令',
     run_tests: '测一测',
-    open_draft_pr: '开 PR',
+  open_draft_pr: '生成方案',
   };
   return map[tool] ?? tool;
 }
@@ -145,7 +145,7 @@ export function friendlyTaskTitle(run: Run): string {
 
 export function friendlySummary(run: Run): string {
   if (run.status === 'needs_approval') {
-    return 'AI 已提交 Draft PR，请先看 Issue 与变更摘要，再决定通过、打回或要求修改。';
+    return 'AI 已生成修改方案，请先看任务说明与变更摘要，再决定通过、打回或要求修改。';
   }
   if (run.status === 'completed') {
     return '你已验收通过，任务完成。';
@@ -165,7 +165,7 @@ export function friendlySummary(run: Run): string {
 const AUDIT_LABELS: Record<string, string> = {
   'run.created': '任务已创建',
   'reconcile.transition': '状态变更',
-  'pr.opened': 'Draft PR 已生成',
+  'pr.opened': '修改方案已生成',
   'run.approved': '验收通过',
   'run.rejected': '验收打回（旧）',
   'run.reject_retry': '打回重做',
@@ -173,12 +173,12 @@ const AUDIT_LABELS: Record<string, string> = {
   'run.cancelled': '任务已取消',
   'run.failed': '任务执行失败',
   'run.retried': '任务已重试',
-  'github.comment': 'GitHub Issue 已评论',
-  'skill.resolved': 'Skill 工具白名单已解析',
+  'github.comment': 'GitHub 问题已评论',
+  'skill.resolved': '能力包权限已确认',
   'tests.failed': '自动化测试失败',
-  'gate.precheck_passed': 'Gate 前检查通过',
+  'gate.precheck_passed': '验收前检查通过',
   'run.round_archived': '上一轮结果已归档',
-  'tool.intercepted': '越权 Tool 已拦截',
+  'tool.intercepted': '越权工具已拦截',
 };
 
 export function friendlyAuditPayload(event: { type: string; payload?: Record<string, unknown> }): string | null {
@@ -196,19 +196,19 @@ export function friendlyAuditPayload(event: { type: string; payload?: Record<str
       if (Array.isArray(p.changedFiles)) return `变更 ${p.changedFiles.length} 个文件`;
       break;
     case 'run.approved':
-      return 'Gate：通过';
+      return '验收：通过';
     case 'run.rejected':
     case 'run.reject_retry':
-      return typeof p.reason === 'string' ? `原因：${p.reason}` : 'Gate：打回重做';
+      return typeof p.reason === 'string' ? `原因：${p.reason}` : '验收：打回重做';
     case 'run.revision_requested':
       return typeof p.notes === 'string' ? `修改要求：${p.notes}` : null;
     case 'skill.resolved':
-      if (Array.isArray(p.tools)) return `Tools：${(p.tools as string[]).join(', ')}`;
+      if (Array.isArray(p.tools)) return `可用工具：${(p.tools as string[]).join(', ')}`;
       break;
     case 'tests.failed':
       return typeof p.hint === 'string' ? p.hint : '测试未通过，任务终止';
     case 'gate.precheck_passed':
-      return '测试 · 变更 · 预算 · PR 全部就绪';
+      return '测试、变更、预算和修改方案全部就绪';
     case 'run.failed':
       if (Array.isArray(p.gateChecks)) return (p.gateChecks as string[]).join('；');
       break;

@@ -10,6 +10,36 @@ interface PlatformOverviewProps {
   onNavigate?: (page: Page) => void;
 }
 
+const HOME_CAPABILITIES = [
+  {
+    id: 'review',
+    num: '01',
+    icon: '✓',
+    title: '结果先验收，再完成',
+    desc: '智能体生成修改方案后不会直接结束，必须由你确认通过、要求修改或打回重做。',
+    page: 'tasks' as Page,
+    action: '去工作台验收',
+  },
+  {
+    id: 'permission',
+    num: '02',
+    icon: '⬡',
+    title: '权限按能力包控制',
+    desc: '每个智能体只能使用已勾选的能力包，避免做超出范围的操作。',
+    page: 'agents' as Page,
+    action: '配置智能体',
+  },
+  {
+    id: 'trace',
+    num: '03',
+    icon: '◎',
+    title: '过程有记录，可复盘',
+    desc: '执行进度、验收决定和状态变化都会留下记录，方便团队追踪和优化。',
+    page: 'tasks' as Page,
+    action: '查看操作记录',
+  },
+];
+
 export function PlatformOverview({
   variant = 'welcome',
   metrics,
@@ -73,7 +103,7 @@ export function PlatformOverview({
           )}
           <div className="platform-stat">
             <span className="platform-stat-val">{metrics.issueToPrRate}%</span>
-            <span className="platform-stat-label">Issue→PR</span>
+            <span className="platform-stat-label">方案生成率</span>
           </div>
           <div className="platform-stat">
             <span className="platform-stat-val">{metrics.successRate}%</span>
@@ -85,18 +115,21 @@ export function PlatformOverview({
           </div>
           <div className="platform-stat">
             <span className="platform-stat-val">{metrics.auditCoverageRate}%</span>
-            <span className="platform-stat-label">Audit 覆盖</span>
+            <span className="platform-stat-label">记录覆盖</span>
           </div>
           <div className="platform-stat">
             <span className="platform-stat-val">{formatMetricUsd(metrics.avgCostUsd)}</span>
-            <span className="platform-stat-label">均任务成本</span>
+            <span className="platform-stat-label">平均成本</span>
           </div>
         </div>
       )}
 
-      <h3 className="platform-overview-title">核心能力</h3>
-      <div className="platform-capabilities">
-        {CORE_CAPABILITIES.map((cap) => (
+      <div className="platform-overview-head">
+        <span className="section-kicker">为什么可以放心交给智能体</span>
+        <h3>关键环节都有人确认、有权限边界、有记录</h3>
+      </div>
+      <div className="platform-capabilities platform-capabilities-home">
+        {HOME_CAPABILITIES.map((cap) => (
           <button
             key={cap.id}
             type="button"
@@ -104,8 +137,15 @@ export function PlatformOverview({
             onClick={() => cap.page && onNavigate?.(cap.page)}
             disabled={!onNavigate || !cap.page}
           >
+            <div className="cap-card-top">
+              <span className="cap-card-icon" aria-hidden>
+                {cap.icon}
+              </span>
+              <span className="cap-card-num">{cap.num}</span>
+            </div>
             <strong>{cap.title}</strong>
             <p>{cap.desc}</p>
+            {onNavigate && cap.page && <span className="cap-card-action">{cap.action} →</span>}
           </button>
         ))}
       </div>

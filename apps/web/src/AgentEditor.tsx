@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   createAgent,
   deleteAgent,
@@ -13,17 +13,19 @@ import {
   type AgentSpec,
 } from './api';
 import {
-  BUILTIN_SKILLS,
   DEFAULT_SPEC,
-  MODEL_OPTIONS,
   skillRef,
   TOOL_INFO,
 } from './agentConfig';
+import { listModelSelectOptions } from './aiPlatform/modelOptions';
 import { inferSkillRefsFromTools, resolveAgentTools } from './types';
+import { getSkill, isCustomSkill, listAllSkills } from './skills/catalog';
 import { AgentIterationTips } from './AgentIterationTips';
 import type { IterationInsight } from './iterationInsights';
 import { PlatformOverview } from './PlatformOverview';
 import { SkillsCatalog } from './SkillsCatalog';
+import { AgentSkillTopology } from './visuals/AgentSkillTopology';
+import { consumePreferredModel } from './aiPlatform/store';
 
 type AgentTab = 'config' | 'skills';
 
@@ -71,6 +73,11 @@ export function AgentEditor() {
   const [monthlySpend, setMonthlySpend] = useState(0);
   const [insights, setInsights] = useState<IterationInsight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  const [highlightSkillRef, setHighlightSkillRef] = useState<string | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
+  const allSkills = listAllSkills();
+  const modelOptions = listModelSelectOptions();
+  const missingSkillRefs = draft.skills.filter((ref) => !getSkill(ref));
 
   const refreshAgents = useCallback(async () => {
     const list = await fetchAgents();
@@ -94,7 +101,15 @@ export function AgentEditor() {
   useEffect(() => {
     if (!selectedId || isNew) return;
     void fetchAgent(selectedId).then((agent) => {
-      setDraft(specFromAgent(agent));
+      const preferredModel = consumePreferredModel();
+      const base = specFromAgent(agent);
+      if (preferredModel) {
+        setDraft(normalizeSpec({ ...base, model: preferredModel }));
+        setDirty(true);
+        setMessage({ type: 'ok', text: '已从模型广场带入模型，请保存配置后生效' });
+        return;
+      }
+      setDraft(base);
       setDirty(false);
     });
   }, [selectedId, isNew]);
@@ -146,6 +161,20 @@ export function AgentEditor() {
     setMessage(null);
   }
 
+  function pulseSkillRef(ref: string) {
+    if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+    setHighlightSkillRef(ref);
+    highlightTimerRef.current = window.setTimeout(() => {
+      setHighlightSkillRef((current) => (current === ref ? null : current));
+    }, 2400);
+  }
+
+  function toggleSkillByRef(ref: string) {
+    const skill = getSkill(ref);
+    if (!skill) return;
+    toggleSkill(skill.id, skill.version);
+  }
+
   function toggleSkill(skillId: string, version: string) {
     const ref = skillRef(skillId, version);
     setDraft((prev) => {
@@ -157,6 +186,7 @@ export function AgentEditor() {
     });
     setDirty(true);
     setMessage(null);
+    pulseSkillRef(ref);
   }
 
   function handleSelectAgent(id: string) {
@@ -175,7 +205,25 @@ export function AgentEditor() {
     setMessage(null);
   }
 
-  async function handleSave(e: React.FormEvent) {
+  function focusSkillRef(ref: string) {
+    const el = document.querySelector(`[data-skill-ref="${CSS.escape(ref)}"]`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    pulseSkillRef(ref);
+  }
+
+  useEffect(() => {
+    if (highlightSkillRef && !draft.skills.includes(highlightSkillRef)) {
+      setHighlightSkillRef(null);
+    }
+  }, [draft.skills, highlightSkillRef]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
+
+  async function handleSave(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
     setMessage(null);
@@ -186,12 +234,12 @@ export function AgentEditor() {
         setIsNew(false);
         setSelectedId(agent.id);
         setDirty(false);
-        setMessage({ type: 'ok', text: '智能体已创建，可去「任务」页新建任务试用' });
+        setMessage({ type: 'ok', text: '智能体已创建，可去「工作台」新建任务试用' });
       } else if (selectedId) {
         const agent = await updateAgent(selectedId, payload.name, payload);
         setDraft(specFromAgent(agent));
         setDirty(false);
-        setMessage({ type: 'ok', text: '保存成功，新建任务时会使用最新 Skill 配置' });
+        setMessage({ type: 'ok', text: '保存成功，新建任务时会使用最新能力包配置' });
       }
       await refreshAgents();
     } catch (err) {
@@ -271,7 +319,7 @@ export function AgentEditor() {
               </div>
               <div className="run-item-sub">{agent.spec.model}</div>
               <div className="run-item-sub">
-                {(agent.spec.skills?.length ?? agent.spec.tools.length)} 个 Skill
+                {(agent.spec.skills?.length ?? agent.spec.tools.length)} 个能力包
               </div>
             </li>
           );
@@ -302,19 +350,19 @@ export function AgentEditor() {
             className={tab === 'skills' ? 'agent-page-tab active' : 'agent-page-tab'}
             onClick={() => setTab('skills')}
           >
-            Skill 目录
+            能力包目录
           </button>
         </div>
 
         {tab === 'skills' ? (
           <SkillsCatalog onConfigureAgent={() => setTab('config')} />
         ) : (
-          <form className="agent-form" onSubmit={(e) => void handleSave(e)}>
+          <form className="agent-form" data-tour="agent-config" onSubmit={(e) => void handleSave(e)}>
             <div className="agent-form-header">
               <div>
                 <h2>{isNew ? '新建智能体' : '编辑智能体'}</h2>
                 <p className="agent-form-desc">
-                  L1 模型与 Prompt · L5 Skill 挂载 · L2 月度预算流控。智造基地第 6 步「前后端研发」+ 第 8 步「安全防护」的配置入口。
+                  在这里设置智能体的工作方式：用哪个模型、遵守什么指令、能调用哪些能力包，以及每月最多消耗多少用量。
                 </p>
               </div>
               <div className="agent-form-actions">
@@ -360,7 +408,10 @@ export function AgentEditor() {
                 <label>
                   大模型
                   <select value={draft.model} onChange={(e) => patchDraft({ model: e.target.value })}>
-                    {MODEL_OPTIONS.map((m) => (
+                    {modelOptions.some((m) => m.value === draft.model) ? null : (
+                      <option value={draft.model}>{draft.model}（当前）</option>
+                    )}
+                    {modelOptions.map((m) => (
                       <option key={m.value} value={m.value}>
                         {m.label}
                       </option>
@@ -371,8 +422,8 @@ export function AgentEditor() {
             </section>
 
             <section className="agent-section">
-              <h3>行为指令（System Prompt）</h3>
-              <p className="section-desc">智能体整体策略：怎么理解任务、怎么协作各 Skill。</p>
+              <h3>行为指令</h3>
+              <p className="section-desc">告诉智能体应该怎么理解任务、怎么改代码、哪些事情不能做。</p>
               <textarea
                 className="prompt-area"
                 value={draft.systemPrompt}
@@ -383,23 +434,58 @@ export function AgentEditor() {
             </section>
 
             <section className="agent-section">
-              <h3>挂载 Skills</h3>
+              <h3>能力挂载拓扑</h3>
+              <p className="section-desc">可视化查看当前智能体与能力包的挂载关系，便于理解权限边界。</p>
+              <AgentSkillTopology
+                agentName={draft.name}
+                model={draft.model}
+                skillRefs={draft.skills}
+                toolCount={draft.tools.length}
+                activeSkillRef={highlightSkillRef}
+                onSkillSelect={focusSkillRef}
+                onSkillToggle={toggleSkillByRef}
+              />
+            </section>
+
+            <section className="agent-section">
+              <h3>选择能力包</h3>
               <p className="section-desc">
-                勾选能力包，或切换到「Skill 目录」查看详情。
+                勾选这个智能体可以使用的能力包。能力越少，权限越清晰，也更容易控制成本。
               </p>
+              {missingSkillRefs.length > 0 && (
+                <p className="agent-skill-warning">
+                  有 {missingSkillRefs.length} 个能力包已不存在（可能已被删除）：{missingSkillRefs.join('、')}。
+                  请取消勾选或到「能力包目录」重新创建后再保存。
+                </p>
+              )}
               <div className="tool-grid skill-grid">
-                {BUILTIN_SKILLS.map((skill) => {
+                {allSkills.map((skill) => {
                   const ref = skillRef(skill.id, skill.version);
                   const checked = draft.skills.includes(ref);
                   return (
-                    <label key={ref} className={checked ? 'tool-card skill-card checked' : 'tool-card skill-card'}>
+                    <label
+                      key={ref}
+                      data-skill-ref={ref}
+                      className={`tool-card skill-card${checked ? ' checked' : ''}${highlightSkillRef === ref ? ' skill-card-highlight' : ''}`}
+                      onClick={(event) => {
+                        if ((event.target as HTMLElement).closest('input[type="checkbox"]')) return;
+                        focusSkillRef(ref);
+                      }}
+                    >
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleSkill(skill.id, skill.version)}
                       />
                       <div>
-                        <strong>{skill.name}</strong>
+                        <div className="skill-card-head">
+                          <strong>{skill.name}</strong>
+                          {isCustomSkill(skill) ? (
+                            <em className="skill-custom-badge">自定义</em>
+                          ) : (
+                            <em className="skill-builtin-badge">内置</em>
+                          )}
+                        </div>
                         <code>{ref}</code>
                         <p>{skill.description}</p>
                         <div className="skill-tool-tags">
@@ -415,15 +501,15 @@ export function AgentEditor() {
                 })}
               </div>
               <p className="section-desc skill-derived">
-                已推导 Tool 白名单（{draft.tools.length} 个）：
+                已自动生成可用工具清单（{draft.tools.length} 个）：
                 {draft.tools.map((t) => TOOL_INFO[t as keyof typeof TOOL_INFO]?.label ?? t).join(' · ')}
               </p>
             </section>
 
             <section className="agent-section">
-              <h3>成本流控</h3>
+              <h3>用量预算</h3>
               <p className="section-desc">
-                参考 Paperclip 月度预算：超出后新建任务会被拦截（本地模式按本月 Token 累计模拟）。
+                给每个智能体设置本月用量上限。接近上限会提醒，用尽后不能再新建任务。
               </p>
               <div className="budget-panel">
                 <div className="budget-stats">
@@ -457,7 +543,7 @@ export function AgentEditor() {
               </div>
               <div className="form-grid">
                 <label>
-                  月度 Token 预算
+                  月度用量预算
                   <input
                     type="number"
                     min={10000}
@@ -466,7 +552,7 @@ export function AgentEditor() {
                     value={draft.limits.monthlyBudgetTokens ?? 500_000}
                     onChange={(e) => patchLimits({ monthlyBudgetTokens: Number(e.target.value) })}
                   />
-                  <span className="field-hint">类似 Paperclip 的 budgetMonthlyCents，此处用 Token 计量</span>
+                  <span className="field-hint">当前本地模式用 token 作为估算单位</span>
                 </label>
               </div>
             </section>
@@ -475,7 +561,7 @@ export function AgentEditor() {
               <h3>运行限制</h3>
               <div className="form-grid form-grid-3">
                 <label>
-                  最大 Token
+                  单次最大用量
                   <input
                     type="number"
                     min={1000}
@@ -484,7 +570,7 @@ export function AgentEditor() {
                     value={draft.limits.maxTokens}
                     onChange={(e) => patchLimits({ maxTokens: Number(e.target.value) })}
                   />
-                  <span className="field-hint">防止单次任务消耗过大</span>
+                  <span className="field-hint">防止单个任务消耗过大</span>
                 </label>
                 <label>
                   超时（分钟）
@@ -516,9 +602,9 @@ export function AgentEditor() {
             )}
 
             <section className="agent-section agent-iteration">
-              <h3>迭代优化（工厂闭环 · 第 5 步）</h3>
+              <h3>优化建议</h3>
               <p className="section-desc">
-                根据该智能体关联任务的<strong>审计轨迹</strong>与 Gate 指标自动生成建议；调整后保存并新建任务验证。
+                根据这个智能体过往任务的<strong>操作记录</strong>和验收结果生成建议；调整后保存，再新建任务验证效果。
               </p>
               <AgentIterationTips insights={insights} loading={insightsLoading && insights.length === 0} />
             </section>

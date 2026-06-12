@@ -26,9 +26,9 @@ export function ApprovalGate({ onApprove, onReject, onRevise, compact = false }:
   return (
     <section className={`approval-gate${compact ? ' approval-gate-compact' : ''}`}>
       <div className="approval-gate-head">
-        <span className="approval-gate-badge">Human Gate</span>
-        <h3>Draft PR 待验收</h3>
-        <p>通过即完成；要求修改会带着你的说明重跑；打回重做将自动重新排队执行。</p>
+        <span className="approval-gate-badge">人工验收</span>
+        <h3>修改方案待确认</h3>
+        <p>通过后任务完成；要求修改会带着你的说明重跑；打回重做会重新排队执行。</p>
       </div>
 
       {!showReject && !showRevise && (
@@ -72,7 +72,7 @@ export function ApprovalGate({ onApprove, onReject, onRevise, compact = false }:
                 })
               }
             >
-              确认打回并重新执行
+              确认打回并重做
             </button>
           </div>
         </div>
@@ -106,7 +106,7 @@ export function ApprovalGate({ onApprove, onReject, onRevise, compact = false }:
                 })
               }
             >
-              发送修改要求并重新执行
+              发送要求并重新执行
             </button>
           </div>
         </div>

@@ -6,15 +6,16 @@ export type {
   ToolName,
 } from '@agentos/shared';
 
+export { computePlatformMetrics } from '@agentos/shared';
+
 export {
   BUILTIN_SKILLS,
   DEFAULT_SKILL_REFS,
-  computePlatformMetrics,
-  getBuiltinSkill,
   inferSkillRefsFromTools,
-  resolveAgentTools,
   skillRef,
 } from '@agentos/shared';
+
+export { getSkill as getBuiltinSkill, isCustomSkill, listAllSkills, resolveAgentTools } from './skills/catalog';
 
 export interface Agent {
   id: string;

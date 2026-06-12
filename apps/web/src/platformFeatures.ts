@@ -14,38 +14,63 @@ export interface CoreCapability {
   page?: Page;
 }
 
-/** 三页功能一览 — 各页面共用 */
+/** 工作台/智能体/架构功能一览 — 各页面共用 */
 export const PLATFORM_PAGES: PlatformPage[] = [
   {
     id: 'tasks',
-    title: '任务',
-    subtitle: 'Issue → Draft PR → 人工 Gate',
+    title: '工作台',
+    subtitle: '任务说明 → 修改方案 → 人工验收',
     features: [
-      '新建任务（Issue 意图 + 验收标准 KPI）',
+      '新建任务（问题说明 + 验收标准）',
       '多轮执行轮次对比（摘要 · 变更文件）',
-      '5 步进度 · 执行日志 · 审计轨迹',
-      'Draft PR 预览（变更文件 + diff）',
-      'Gate 前检查（测试 · 变更 · 预算）',
-      'Human Gate：通过 / 要求修改 / 打回重做',
+      '5 步进度 · 执行日志 · 操作记录',
+      '修改方案预览（变更文件 + 代码差异）',
+      '验收前检查（测试 · 变更 · 预算）',
+      '人工验收：通过 / 要求修改 / 打回重做',
       '待验收置顶 · 按智能体筛选',
     ],
   },
   {
     id: 'agents',
     title: '智能体',
-    subtitle: 'Spec · Skill · 预算流控',
+    subtitle: '行为指令 · 能力包 · 用量预算',
     features: [
-      '模型与 System Prompt 配置',
-      '挂载内置 Skill · Tool 白名单推导',
-      'Skill 目录只读浏览',
-      '月度 Token 预算（80% 预警 / 100% 硬停）',
+      '模型与行为指令配置',
+      '挂载内置能力包 · 自动推导工具权限',
+      '能力包目录 · 支持创建自定义能力包',
+      '月度用量预算（80% 预警 / 100% 停止新任务）',
       '复制 / 删除 · 审计驱动迭代提示',
+    ],
+  },
+  {
+    id: 'ai',
+    title: 'AI 平台',
+    subtitle: '数据工场 · 训练中心 · 模型广场',
+    features: [
+      '数据采集与清洗规则',
+      '工作台任务/审计自动同步数据源',
+      '数据集构建与微调任务',
+      '训练进度跟踪与状态管理',
+      '模型广场浏览、搜索与选用',
+      '一键应用到智能体配置',
+    ],
+  },
+  {
+    id: 'tokens',
+    title: '用量监控',
+    subtitle: '消耗统计 · 预算进度 · 高消耗任务',
+    features: [
+      '总消耗与平均用量概览',
+      '按智能体预算进度与预警',
+      '成本估算与趋势参考',
+      '高消耗任务列表',
+      '与通知中心预算提醒联动',
     ],
   },
   {
     id: 'architecture',
     title: '架构',
-    subtitle: '六层模型 · 智造对照 · 度量',
+    subtitle: '系统分层 · 能力边界 · 指标',
     features: [
       '智造基地 9 步对照表',
       '六层架构 + 六大设计原则',
@@ -59,38 +84,38 @@ export const PLATFORM_PAGES: PlatformPage[] = [
 export const CORE_CAPABILITIES: CoreCapability[] = [
   {
     id: 'gate',
-    title: 'Human Gate',
-    desc: 'Draft PR 必须人工验收，支持通过、带说明修改、打回自动重跑',
+    title: '人工验收',
+    desc: '每个修改方案都要人确认，可通过、要求修改或打回重做',
     page: 'tasks',
   },
   {
     id: 'skill',
-    title: 'Skill 最小授权',
-    desc: '智能体只能挂载注册 Skill，Tool 白名单自动推导',
+    title: '能力包授权',
+    desc: '智能体只能使用已勾选的能力包，系统会自动限制可用工具',
     page: 'agents',
   },
   {
     id: 'audit',
-    title: '审计轨迹',
-    desc: 'Gate 决策与状态变更不可变记录，支撑迭代与治理',
+    title: '操作记录',
+    desc: '每次状态变化和验收决定都会记录，方便复盘和优化',
     page: 'tasks',
   },
   {
     id: 'budget',
-    title: '成本流控',
-    desc: '按智能体月度 Token 预算模拟，超 80% 预警、用尽拦截新建',
+    title: '用量预算',
+    desc: '按智能体设置每月用量上限，接近上限会提醒，用尽后停止新任务',
     page: 'agents',
   },
   {
     id: 'metrics',
     title: '价值度量',
-    desc: '成功率、Audit 覆盖、越权拦截、单任务成本、Issue→PR',
+    desc: '成功率、记录覆盖、权限拦截、单任务成本、方案生成率',
     page: 'architecture',
   },
   {
     id: 'mfg',
-    title: '智造基地对照',
-    desc: '聚焦架构·研发·测试·安全；数据/训练/RAG 明确不做',
-    page: 'architecture',
+    title: 'AI 平台',
+    desc: '数据工场、训练中心与模型广场，支撑微调与模型选用',
+    page: 'ai',
   },
 ];

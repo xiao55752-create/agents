@@ -9,6 +9,8 @@
     "dev:api": "npm run dev -w @agentos/api",
     "dev:web": "npm run dev -w @agentos/web",
     "build": "npm run build -w @agentos/shared && npm run build -w @agentos/api && npm run build -w @agentos/web",
+    "build:web": "npm run build -w @agentos/shared && npm run build -w @agentos/web",
+    "preview:demo": "npm run build:web && npm run preview -w @agentos/web",
     "start": "npm run start -w @agentos/api",
     "test": "npm run test -w @agentos/shared"
   },

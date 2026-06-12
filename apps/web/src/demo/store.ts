@@ -1,5 +1,6 @@
-import { BUILTIN_SKILLS, computePlatformMetrics } from '@agentos/shared';
+import { computePlatformMetrics } from '@agentos/shared';
 import { DEFAULT_SPEC } from '../agentConfig';
+import { listAllSkills } from '../skills/catalog';
 import {
   agentHasTestCapability,
   buildGateCheckSnapshot,
@@ -7,6 +8,7 @@ import {
   type GateCheckSnapshot,
 } from '../gateChecks';
 import { computeAgentIterationInsights, type IterationInsight } from '../iterationInsights';
+import { seedAiPlatformDemoData } from './seedAiPlatform';
 import { appendOutputHistory } from '../runRounds';
 import { inferSkillRefsFromTools, resolveAgentTools } from '../types';
 import type {
@@ -528,8 +530,20 @@ export function demoIntegrations(): IntegrationsStatus {
   return { llm: 'disabled', github: 'disabled', mode: 'simulated' };
 }
 
+export function demoWorkflowDataStats() {
+  initDemoStore();
+  let auditEventCount = 0;
+  for (const entries of auditByRun.values()) {
+    auditEventCount += entries.length;
+  }
+  return {
+    runCount: runs.length,
+    auditEventCount,
+  };
+}
+
 export function demoFetchSkills() {
-  return BUILTIN_SKILLS.map((s) => ({ ...s, tools: [...s.tools] }));
+  return listAllSkills().map((s) => ({ ...s, tools: [...s.tools] }));
 }
 
 export function demoAgentIterationInsights(agentId: string): IterationInsight[] {
@@ -809,6 +823,151 @@ export function demoResetAll() {
   logListeners.clear();
   simTimers.clear();
   persistState();
+}
+
+function insertSampleRun(
+  agentId: string,
+  input: Run['input'],
+  status: RunStatus,
+  options: {
+    tokensUsed: number;
+    completionGate?: Run['completionGate'];
+  },
+): Run {
+  const t = ts();
+  const runId = uid('run');
+  const branch = `agentos/demo-${runId.slice(4, 10)}`;
+  const agent = agents.find((a) => a.id === agentId);
+  const stubRun: Run = {
+    id: runId,
+    agentId,
+    workflow: 'issue-to-pr',
+    status: 'running',
+    input,
+    runAttempt: 1,
+    outputHistory: [],
+    tokensUsed: options.tokensUsed,
+    createdAt: t,
+    updatedAt: t,
+  };
+  const changedFiles = mockChangedFiles(stubRun);
+  const summary = buildRunSummary(stubRun, agent?.name ?? DEFAULT_SPEC.name);
+  const output: NonNullable<Run['output']> = {
+    prUrl: `https://github.com/${input.repo}/pull/901`,
+    branch,
+    summary,
+    changedFiles,
+    attempt: 1,
+  };
+
+  let gateChecks: Run['gateChecks'];
+  if (status === 'needs_approval') {
+    const tools = [...resolveAgentTools(agent?.spec ?? DEFAULT_SPEC)];
+    gateChecks = buildGateCheckSnapshot(stubRun, agent, tools, {
+      testsRan: true,
+      testsPassed: true,
+      hasDiff: changedFiles.length > 0,
+      budgetOk: true,
+      prReady: true,
+    });
+  }
+
+  const run: Run = {
+    ...stubRun,
+    status,
+    output,
+    gateChecks,
+    completionGate: options.completionGate,
+    tokensUsed: options.tokensUsed,
+  };
+
+  runs.unshift(run);
+  emitAudit(runId, 'run.created', { input, workflow: run.workflow, demo: true });
+  emitAudit(runId, 'skill.resolved', { skills: agent?.spec.skills ?? DEFAULT_SPEC.skills });
+  emitLog(runId, 'info', `演示任务：${input.issueTitle}`, { demo: true });
+
+  if (status === 'needs_approval') {
+    emitAudit(runId, 'pr.opened', { prUrl: output.prUrl, branch, summary, changedFiles });
+    emitAudit(runId, 'gate.precheck_passed', { demo: true });
+    emitAudit(runId, 'reconcile.transition', { from: 'running', to: 'needs_approval', reason: 'awaiting-human' });
+    emitLog(runId, 'info', '修改方案已生成，等待人工验收');
+  } else if (status === 'completed') {
+    emitAudit(runId, 'reconcile.transition', { from: 'needs_approval', to: 'completed', reason: 'gate-approve' });
+    emitAudit(runId, 'run.approved', { by: 'user', gate: 'approve', demo: true });
+    emitLog(runId, 'info', '演示任务已通过验收');
+  }
+
+  persistState();
+  return { ...run };
+}
+
+export interface DemoSeedResult {
+  pendingRunId: string;
+  completedRunId: string;
+  replaced: boolean;
+  skipped?: boolean;
+}
+
+export function demoSeedExperience(replace = false): DemoSeedResult {
+  initDemoStore();
+
+  if (runs.length > 0 && !replace) {
+    return {
+      pendingRunId: runs.find((r) => r.status === 'needs_approval')?.id ?? runs[0]!.id,
+      completedRunId: runs.find((r) => r.status === 'completed')?.id ?? runs[0]!.id,
+      replaced: false,
+      skipped: true,
+    };
+  }
+
+  if (replace && runs.length > 0) {
+    for (const runId of runs.map((r) => r.id)) clearSim(runId);
+    runs = [];
+    logsByRun.clear();
+    auditByRun.clear();
+  }
+
+  const agentId = agents[0]!.id;
+  const repo = 'acme/web-app';
+
+  const pending = insertSampleRun(
+    agentId,
+    {
+      repo,
+      issueNumber: 42,
+      issueTitle: '登录按钮点击后没反应',
+      issueBody: '用户点击登录按钮后页面无响应。期望：未登录时有明确提示或跳转。',
+      acceptanceCriteria: '1. 未登录点击时有提示\n2. npm test 通过\n3. 只改登录相关文件',
+    },
+    'needs_approval',
+    { tokensUsed: 12_400 },
+  );
+
+  const completed = insertSampleRun(
+    agentId,
+    {
+      repo,
+      issueNumber: 18,
+      issueTitle: '表单校验错误提示不清晰',
+      issueBody: '校验失败时只显示红色边框，没有文字说明。',
+      acceptanceCriteria: '1. 每个字段有明确错误文案\n2. 测试通过',
+    },
+    'completed',
+    { tokensUsed: 8_900, completionGate: 'approve' },
+  );
+
+  let auditEventCount = 0;
+  for (const entries of auditByRun.values()) auditEventCount += entries.length;
+
+  seedAiPlatformDemoData({ runCount: runs.length, auditEventCount });
+
+  persistState();
+
+  return {
+    pendingRunId: pending.id,
+    completedRunId: completed.id,
+    replaced: replace,
+  };
 }
 
 export function demoExportState(): string {

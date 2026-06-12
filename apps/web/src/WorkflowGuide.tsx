@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AGENT_WORKFLOW, USER_WORKFLOW, WORKFLOW_SUMMARY } from './workflow';
+import { WorkflowFlowBar } from './WorkflowFlowBar';
 
 interface WorkflowGuideProps {
   compact?: boolean;
@@ -30,6 +31,7 @@ export function WorkflowGuide({ compact = false }: WorkflowGuideProps) {
 
   return (
     <section className="workflow-guide">
+      <WorkflowFlowBar />
       <div className="workflow-intro">
         <h2>完成一次智能体工作，需要走哪些步骤？</h2>
         <p className="workflow-summary">{WORKFLOW_SUMMARY}</p>

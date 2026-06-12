@@ -20,7 +20,7 @@ export interface ArchLayer {
   modules: ArchModule[];
   agentOS: string;
   status: LayerStatus;
-  demoPage?: 'tasks' | 'agents' | 'architecture';
+  demoPage?: 'tasks' | 'agents' | 'ai' | 'architecture';
   demoLabel?: string;
 }
 
@@ -78,7 +78,7 @@ export const ARCH_LAYERS: ArchLayer[] = [
     agentOS: 'Approve Gate · Audit 时间线 · Run 限额 · Reconcile CAS',
     status: 'demo',
     demoPage: 'tasks',
-    demoLabel: '任务页 · Gate 验收 + 审计轨迹 ✅',
+    demoLabel: '工作台 · Gate 验收 + 审计轨迹 ✅',
   },
   {
     id: 'orchestration',
@@ -94,7 +94,7 @@ export const ARCH_LAYERS: ArchLayer[] = [
     agentOS: 'Run 生命周期 · reconcileRun() · controlIntent',
     status: 'demo',
     demoPage: 'tasks',
-    demoLabel: '任务页 · 5 步进度条 + 状态机 ✅',
+    demoLabel: '工作台 · 5 步进度条 + 状态机 ✅',
   },
   {
     id: 'runtime',
@@ -110,7 +110,7 @@ export const ARCH_LAYERS: ArchLayer[] = [
     agentOS: 'Executor 执行面；浏览器内 Mock 模拟',
     status: 'demo',
     demoPage: 'tasks',
-    demoLabel: '任务页 · 执行过程 + 重试 ✅',
+    demoLabel: '工作台 · 执行过程 + 重试 ✅',
   },
   {
     id: 'capability',
@@ -121,7 +121,8 @@ export const ARCH_LAYERS: ArchLayer[] = [
       { name: 'Skill 目录与 Schema', impl: 'done' },
       { name: 'Tool 白名单 · 适配器', impl: 'done' },
       { name: 'GET /api/skills 目录 API', impl: 'done' },
-      { name: '版本 · 灰度 · 用户创建 Skill', impl: 'planned' },
+      { name: '用户创建 Skill（本地演示）', impl: 'mock' },
+      { name: '版本 · 灰度 · 服务端注册', impl: 'planned' },
       { name: 'MCP 外部工具', impl: 'planned' },
     ],
     agentOS: '内置 Skill 目录 · Agent 挂载 · Tool 白名单推导',
@@ -140,7 +141,7 @@ export const ARCH_LAYERS: ArchLayer[] = [
       { name: 'GitHub Webhook 接入', impl: 'mock' },
       { name: '可验证工程结果（真实 PR）', impl: 'planned' },
     ],
-    agentOS: '三页控制台 + 指标看板',
+    agentOS: '总览 + 工作台 + 智能体 + 架构',
     status: 'demo',
     demoPage: 'architecture',
     demoLabel: '架构页 · 端到端叙事 + 度量 ✅',
@@ -205,7 +206,7 @@ export const ROADMAP: RoadmapPhase[] = [
     phase: 'P0',
     title: '前端 Demo',
     focus: [
-      '三页：任务 Gate · 智能体 Skill/预算 · 架构智造对照',
+      '总览入口 · 工作台 Gate · 智能体 Skill/预算 · 架构智造对照',
       'Issue 意图 · Draft PR · 审计 · 度量',
       '本地模式零后端',
     ],
@@ -239,33 +240,33 @@ export const ROADMAP: RoadmapPhase[] = [
 export const METRICS: MetricGroup[] = [
   {
     category: '任务质量',
-    metrics: ['Run 成功率', '人工打回率', '要求修改率', 'Issue→PR 转化率'],
+    metrics: ['任务成功率', '人工打回率', '要求修改率', '方案生成率'],
     liveKeys: ['successRate', 'rejectRate', 'reviseRate', 'issueToPrRate'],
   },
   {
     category: '效率',
-    metrics: ['任务完成时长', 'Token 消耗', '并发 Run 数'],
+    metrics: ['任务完成时长', '用量消耗', '并发任务数'],
     liveKeys: ['avgDurationSec', 'avgTokens', 'activeRuns'],
   },
   {
     category: '治理',
-    metrics: ['审批通过率', 'Audit 覆盖率', '越权 Tool 拦截'],
+    metrics: ['验收通过率', '记录覆盖率', '越权工具拦截'],
     liveKeys: ['approvalRate', 'auditCoverageRate', 'toolInterceptRate'],
   },
   {
     category: '商业',
-    metrics: ['单任务成本', 'Workflow 复用率', '总 Token 成本'],
+    metrics: ['单任务成本', '流程复用率', '总用量成本'],
     liveKeys: ['avgCostUsd', 'workflowReuseRate', 'totalCostUsd'],
   },
 ];
 
 /** Agent 工厂化 5 步闭环 */
 export const FACTORY_LOOP = [
-  { step: 1, title: '接入', desc: 'Issue / API / Webhook 触发 Run', impl: 'mock' as ImplStatus },
-  { step: 2, title: '配置', desc: 'Agent Spec · Skill · Workflow 模板', impl: 'done' as ImplStatus },
-  { step: 3, title: '执行', desc: 'Runtime 沙箱 · Tool Loop · 日志', impl: 'mock' as ImplStatus },
-  { step: 4, title: '验收', desc: 'Human Gate · Draft PR · 审批', impl: 'done' as ImplStatus },
-  { step: 5, title: '迭代', desc: 'Audit 分析 · Prompt 调优 · 预算/Gate 指标', impl: 'done' as ImplStatus },
+  { step: 1, title: '接入', desc: '任务说明 / API / Webhook 触发任务', impl: 'mock' as ImplStatus },
+  { step: 2, title: '配置', desc: '智能体配置 · 能力包 · 流程模板', impl: 'done' as ImplStatus },
+  { step: 3, title: '执行', desc: '运行环境 · 工具调用 · 日志', impl: 'mock' as ImplStatus },
+  { step: 4, title: '验收', desc: '人工验收 · 修改方案 · 审批', impl: 'done' as ImplStatus },
+  { step: 5, title: '迭代', desc: '记录分析 · 指令调优 · 预算/验收指标', impl: 'done' as ImplStatus },
 ];
 
 export const IMPL_LABEL: Record<ImplStatus, string> = {
@@ -278,8 +279,8 @@ export const POSITIONING = {
   tagline: '面向工程团队的 Agentic OS — 治理 · 编排 · 验收',
   vsAgenticOS: '统一治理 + Skill 注册 + 产业任务，聚焦开发者自动化垂直场景',
   vsFactory: '吸收「控制面 + 工厂化闭环 + 价值度量」，不做底层训练/推理集群',
-  vsManufacturingBase: '覆盖智造链中「架构·研发·测试·安全」段；数据/训练/RAG 明确不做',
-  focus: '本地模式三页功能已对齐；后端 P1 暂缓，apps/api 保留供后续启用',
+  vsManufacturingBase: '覆盖智造链「数据·知识·训练·架构·研发·测试·安全」；本地模式已提供 AI 平台演示',
+  focus: '本地模式核心页面已对齐；后端 P1 暂缓，apps/api 保留供后续启用',
 };
 
 /** 智造基地 9 步 ↔ agentOS 对照（产业全景 · 只读） */
@@ -293,7 +294,7 @@ export interface ManufacturingStep {
   layerRef: string;
   impl: ImplStatus;
   scope: ManufacturingScope;
-  demoPage?: 'tasks' | 'agents' | 'architecture';
+  demoPage?: 'tasks' | 'agents' | 'ai' | 'architecture';
 }
 
 export const MANUFACTURING_SCOPE_LABEL: Record<ManufacturingScope, string> = {
@@ -317,28 +318,31 @@ export const MANUFACTURING_BASE_9: ManufacturingStep[] = [
     step: 2,
     title: '数据处理区',
     industryDesc: '多源异构数据清洗、标注、隐私脱敏',
-    agentOS: '— 非控制面职责，Issue/代码上下文由 GitHub 提供',
-    layerRef: '—',
-    impl: 'planned',
-    scope: 'excluded',
+    agentOS: 'AI 平台 · 数据工场：采集 GitHub / 审计 / 手动数据源',
+    layerRef: 'L1 模型与知识',
+    impl: 'mock',
+    scope: 'partial',
+    demoPage: 'ai',
   },
   {
     step: 3,
     title: '知识精炼区',
     industryDesc: '企业专属知识库 · RAG 检索增强',
-    agentOS: '— P3 可选；当前 Issue + 仓库代码已够用',
+    agentOS: 'AI 平台 · 数据清洗规则 · 数据集构建',
     layerRef: 'L1 模型与知识',
-    impl: 'planned',
-    scope: 'excluded',
+    impl: 'mock',
+    scope: 'partial',
+    demoPage: 'ai',
   },
   {
     step: 4,
     title: '模型训练与推理',
     industryDesc: 'MoE 训练 · 弹性 PD 分离推理降本',
-    agentOS: '— 调用商用 LLM API，不做训练/推理集群',
+    agentOS: 'AI 平台 · 训练中心 · 模型广场',
     layerRef: 'L1 模型与知识',
-    impl: 'planned',
-    scope: 'excluded',
+    impl: 'mock',
+    scope: 'partial',
+    demoPage: 'ai',
   },
   {
     step: 5,

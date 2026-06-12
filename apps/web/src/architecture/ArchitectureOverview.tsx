@@ -16,6 +16,7 @@ import {
   type LayerStatus,
   type ManufacturingScope,
 } from './model';
+import { ArchPipelineDiagram } from './ArchPipelineDiagram';
 
 const STATUS_LABEL: Record<LayerStatus, string> = {
   demo: '本地已覆盖',
@@ -35,15 +36,15 @@ const METRIC_LABELS: Partial<Record<keyof PlatformMetrics, string>> = {
   approvalRate: '审批通过率',
   rejectRate: '打回率',
   reviseRate: '要求修改率',
-  issueToPrRate: 'Issue→PR',
+  issueToPrRate: '方案生成率',
   completedRuns: '已完成任务',
   avgDurationSec: '平均耗时(秒)',
-  avgTokens: '平均 Token',
+  avgTokens: '平均用量',
   activeRuns: '进行中',
   totalRuns: '总任务数',
-  auditCoverageRate: 'Audit 覆盖率',
+  auditCoverageRate: '记录覆盖率',
   toolInterceptRate: '越权拦截率',
-  workflowReuseRate: 'Workflow 复用率',
+  workflowReuseRate: '流程复用率',
   avgCostUsd: '单任务成本',
   totalCostUsd: '总成本',
 };
@@ -106,26 +107,32 @@ export function ArchitectureOverview({ onNavigate, metrics }: ArchitectureOvervi
         {onNavigate && (
           <div className="arch-hero-nav">
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => onNavigate('tasks')}>
-              任务页
+              工作台
             </button>
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => onNavigate('agents')}>
-              智能体页
+              智能体
             </button>
-            <span className="arch-hero-nav-hint">架构页为只读对照，功能在三页体验</span>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => onNavigate('ai')}>
+              AI 平台
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => onNavigate('tokens')}>
+              用量监控
+            </button>
+            <span className="arch-hero-nav-hint">架构页为只读对照，功能在总览与各业务页体验</span>
           </div>
         )}
       </header>
 
       <section className="arch-section">
-        <h3>三页功能一览</h3>
-        <p className="section-desc">任务 · 智能体 · 架构 — 本地模式下的完整产品面</p>
+        <h3>功能入口一览</h3>
+        <p className="section-desc">工作台 · 智能体 · AI 平台 · 用量监控 · 架构 — 本地模式下的核心产品面</p>
         <PlatformOverview variant="pages" onNavigate={onNavigate} />
       </section>
 
       {metrics && metrics.totalRuns > 0 && (
         <section className="arch-section">
           <h3>平台运行概览</h3>
-          <p className="section-desc">来自本地任务与 Gate 审计的实时统计</p>
+          <p className="section-desc">来自本地任务和验收记录的实时统计</p>
           <PlatformOverview variant="welcome" metrics={metrics} onNavigate={onNavigate} />
         </section>
       )}
@@ -133,8 +140,7 @@ export function ArchitectureOverview({ onNavigate, metrics }: ArchitectureOvervi
       <section className="arch-section">
         <h3>智造基地 9 步对照</h3>
         <p className="section-desc">
-          产业级「AI 智能体智造基地」全景图。agentOS 聚焦工程自动化链路的<strong>架构 · 研发 · 测试 · 安全</strong>
-          四格；数据/知识/训练三格明确不做。
+          产业级「AI 智能体智造基地」全景图。agentOS 已扩展 <strong>AI 平台</strong>（数据 · 训练 · 模型广场），并覆盖工程自动化链路的<strong>架构 · 研发 · 测试 · 安全</strong>。
         </p>
         <div className="mfg-legend">
           <ScopeBadge scope="focus" />
@@ -183,7 +189,8 @@ export function ArchitectureOverview({ onNavigate, metrics }: ArchitectureOvervi
 
       <section className="arch-section">
         <h3>六层架构（优化后）</h3>
-        <p className="section-desc">自下而上：模型知识 → 治理 → 编排 → 运行时 → Skill → 体验</p>
+        <p className="section-desc">自下而上：模型知识 → 治理 → 编排 → 运行时 → 能力包 → 体验</p>
+        <ArchPipelineDiagram layers={ARCH_LAYERS} onNavigate={onNavigate} />
         <div className="arch-stack">
           {[...ARCH_LAYERS].reverse().map((layer) => (
             <div
@@ -250,14 +257,16 @@ export function ArchitectureOverview({ onNavigate, metrics }: ArchitectureOvervi
         <h3>Agent 工厂化闭环</h3>
         <div className="factory-loop factory-loop-5">
           {FACTORY_LOOP.map((item, i) => (
-            <div key={item.step} className="factory-step">
-              <span className="factory-num">{item.step}</span>
-              <div className="factory-step-head">
-                <strong>{item.title}</strong>
-                <ImplBadge status={item.impl} />
+            <div key={item.step} className="factory-pipeline-wrap">
+              <div className="factory-step">
+                <span className="factory-num">{item.step}</span>
+                <div className="factory-step-head">
+                  <strong>{item.title}</strong>
+                  <ImplBadge status={item.impl} />
+                </div>
+                <p>{item.desc}</p>
               </div>
-              <p>{item.desc}</p>
-              {i < FACTORY_LOOP.length - 1 && <span className="factory-connector">→</span>}
+              {i < FACTORY_LOOP.length - 1 && <span className="factory-connector" aria-hidden>→</span>}
             </div>
           ))}
         </div>

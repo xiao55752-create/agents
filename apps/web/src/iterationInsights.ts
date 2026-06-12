@@ -75,7 +75,7 @@ export function computeAgentIterationInsights(
       id: 'no-runs',
       severity: 'info',
       title: '尚无任务数据',
-      detail: '保存配置后，在任务页新建 Issue 任务，再根据审计轨迹回到此处迭代 Prompt 与 Skill。',
+      detail: '保存配置后，在工作台新建任务，再根据操作记录回到这里优化行为指令和能力包。',
     });
     return tips;
   }
@@ -91,7 +91,7 @@ export function computeAgentIterationInsights(
       id: 'test-fail',
       severity: 'action',
       title: `有 ${stats.testFails} 次测试失败`,
-      detail: '在 Prompt 强调「测试不过不开 PR」；确认已挂载 test-run Skill。Issue 含「测试失败」为演示场景。',
+      detail: '在行为指令里强调“测试不过不交付”；确认已挂载测试能力包。任务说明含“测试失败”可演示失败场景。',
     });
   }
 
@@ -100,7 +100,7 @@ export function computeAgentIterationInsights(
       id: 'high-reject',
       severity: 'warn',
       title: `打回率 ${stats.rejectRate}% 偏高`,
-      detail: '检查 Issue 验收标准是否写清；收紧 Skill 挂载范围，避免改动过大。',
+      detail: '检查验收标准是否写清楚；减少不必要的能力包，避免改动范围过大。',
     });
   }
 
@@ -112,8 +112,8 @@ export function computeAgentIterationInsights(
       title: `要求修改率 ${stats.reviseRate}% 偏高`,
       detail:
         samples.length > 0
-          ? `常见修改意见：${samples.join('、')}。可在 Prompt 中预先覆盖这些点。`
-          : '查看任务页审计中的 revision_requested 事件，把高频意见写进 Prompt。',
+          ? `常见修改意见：${samples.join('、')}。可在行为指令中提前覆盖这些点。`
+          : '查看工作台操作记录里的修改意见，把高频要求写进行为指令。',
     });
   } else if (stats.revisionNotes.length > 0) {
     const samples = topRevisionNotes(stats.revisionNotes, 1);
@@ -121,7 +121,7 @@ export function computeAgentIterationInsights(
       id: 'revision-sample',
       severity: 'info',
       title: '近期验收修改意见',
-      detail: `参考：${samples.join('、')}，考虑写入 System Prompt 默认约束。`,
+      detail: `参考：${samples.join('、')}，可以写进行为指令，作为默认要求。`,
     });
   }
 
@@ -130,7 +130,7 @@ export function computeAgentIterationInsights(
       id: 'tool-intercept',
       severity: 'action',
       title: `越权 Tool 拦截 ${stats.intercepts} 次`,
-      detail: 'Spec 中存在未挂载 Skill 的 Tool，已在运行时拦截。请只勾选必要 Skill，依赖白名单推导。',
+      detail: '配置里出现了未授权工具，运行时已拦截。请只勾选必要能力包，让系统自动生成工具权限。',
     });
   }
 
@@ -138,8 +138,8 @@ export function computeAgentIterationInsights(
     tips.push({
       id: 'low-pr',
       severity: 'warn',
-      title: `Issue→PR 仅 ${stats.issueToPrRate}%`,
-      detail: '确认已挂载 github-pr Skill（含 open_draft_pr）；检查 Gate 前测试与预算是否阻断。',
+      title: `方案生成率仅 ${stats.issueToPrRate}%`,
+      detail: '确认已挂载生成修改方案的能力包；检查验收前测试或预算是否阻断。',
     });
   }
 
@@ -151,7 +151,7 @@ export function computeAgentIterationInsights(
       detail:
         budgetPct >= 100
           ? '预算用尽会拦截新建任务，请提高月度上限或等待下月。'
-          : '接近预算上限，可降低 maxTokens 或收紧 Skill 减少 Token 消耗。',
+          : '接近预算上限，可降低单次最大用量或减少能力包，降低消耗。',
     });
   }
 
@@ -159,8 +159,8 @@ export function computeAgentIterationInsights(
     tips.push({
       id: 'high-tokens',
       severity: 'info',
-      title: `平均 Token ${Math.round(avgTokens).toLocaleString()} 偏高`,
-      detail: '缩短 System Prompt、减少挂载 Skill，或降低单次 maxTokens 上限。',
+      title: `平均用量 ${Math.round(avgTokens).toLocaleString()} tokens 偏高`,
+      detail: '缩短行为指令、减少能力包，或降低单次最大用量上限。',
     });
   }
 
@@ -168,8 +168,8 @@ export function computeAgentIterationInsights(
     tips.push({
       id: 'many-skills',
       severity: 'info',
-      title: `已挂载 ${mountedSkillCount} 个 Skill`,
-      detail: '遵循最小授权：只保留完成 Issue 必需的 Skill，降低越权与成本风险。',
+      title: `已选择 ${mountedSkillCount} 个能力包`,
+      detail: '建议只保留完成任务必需的能力包，降低越权和成本风险。',
     });
   }
 
@@ -178,7 +178,7 @@ export function computeAgentIterationInsights(
       id: 'healthy',
       severity: 'ok',
       title: '指标健康',
-      detail: '打回/修改率正常，可继续用当前 Prompt 与 Skill 配置，定期查看架构页全局度量。',
+      detail: '打回和修改率正常，可继续使用当前行为指令与能力包配置，定期查看架构页全局指标。',
     });
   }
 
